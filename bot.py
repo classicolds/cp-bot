@@ -95,20 +95,16 @@ async def check_channel(client: Client, user_id: int, check_id, is_private: bool
         return True
     try:
         member = await client.get_chat_member(check_id, user_id)
-        return member.status.name not in ("BANNED", "LEFT")
+        status = member.status.name
+        
+        # For private channels, accept RESTRICTED status (pending join request)
+        if is_private and status == "RESTRICTED":
+            print(f"[INFO] User {user_id} has pending request for private channel {check_id}")
+            return True
+        
+        # Standard check: user is a member and not banned/left
+        return status not in ("BANNED", "LEFT")
     except UserNotParticipant:
-        # User is not a member. For private channels, check if they have a pending request.
-        if is_private:
-            try:
-                # Try to get join requests for this user in the private channel
-                # If the user has a pending request, they will appear in the requests list
-                requests = await client.get_chat_join_requests(check_id, query=str(user_id), limit=1)
-                if requests and len(requests) > 0:
-                    # User has a pending join request
-                    print(f"[INFO] User {user_id} has pending request for private channel {check_id}")
-                    return True
-            except Exception as e:
-                print(f"[INFO] Could not check join requests for {check_id}: {e}")
         return False
     except (ChatAdminRequired, ChannelPrivate):
         print(f"[WARN] Bot cannot check membership for {check_id} — make it an admin.")
