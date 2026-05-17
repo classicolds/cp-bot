@@ -110,10 +110,20 @@ async def check_channel(client: Client, user_id: int, check_id, is_private: bool
         print(f"[INFO] User {user_id} not a member of public channel {check_id}")
         return False
     except (ChatAdminRequired, ChannelPrivate):
-        print(f"[WARN] Bot cannot check membership for {check_id} — make it an admin.")
+        # Bot doesn't have admin rights in this channel
+        # For private channels, be lenient and allow (user likely has pending request)
+        # For public channels, also allow (bot can't verify but user should be able to join)
+        if is_private:
+            print(f"[WARN] Bot cannot check private channel {check_id} (no admin) — allowing (pending request)")
+            return True
+        print(f"[WARN] Bot cannot check public channel {check_id} (no admin) — allowing")
         return True
     except Exception as e:
         print(f"[ERROR] Membership check failed for {check_id}: {type(e).__name__}: {e}")
+        # On error, be lenient for private channels
+        if is_private:
+            print(f"[INFO] Error checking private channel — allowing (pending request)")
+            return True
         return True
 
 
