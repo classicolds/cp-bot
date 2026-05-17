@@ -31,19 +31,22 @@ def _parse_channel_id(raw: str) -> int:
 
 
 # ── Channels the user must join ───────────────
-# Each entry: (check_id, button_label, join_url)
+# Each entry: (check_id, button_label, join_url, is_private)
 #   check_id  → @username for public, -100XXXXX (int) for private
 #   join_url  → URL shown on the button (never the numeric ID)
+#   is_private → True if this is a private channel (allow pending requests)
 CHANNELS = [
     (
         "@clas3icx",
         "📢 Public Channel",
         "https://t.me/clas3icx",
+        False,
     ),
     (
         _parse_channel_id(os.environ.get("PRIVATE_CHANNEL_ID", "0")),
         "🔒 Private Channel",
         "https://t.me/+p58ZCEE1DhE2OWQ1",
+        True,
     ),
 ]
 
@@ -80,8 +83,13 @@ app = Client(
 # ─────────────────────────────────────────────
 #  HELPERS
 # ─────────────────────────────────────────────
-async def check_channel(client: Client, user_id: int, check_id) -> bool:
-    """Return True if user_id is an active member of check_id."""
+async def check_channel(client: Client, user_id: int, check_id, is_private: bool = False) -> bool:
+    """
+    Return True if user_id is an active member of check_id.
+    
+    For private channels: also return True if user has a pending join request.
+    For public channels: only return True if user is a full member.
+    """
     if not check_id or check_id == 0:
         print(f"[WARN] Channel check_id not configured, skipping check.")
         return True
@@ -89,6 +97,18 @@ async def check_channel(client: Client, user_id: int, check_id) -> bool:
         member = await client.get_chat_member(check_id, user_id)
         return member.status.name not in ("BANNED", "LEFT")
     except UserNotParticipant:
+        # User is not a member. For private channels, check if they have a pending request.
+        if is_private:
+            try:
+                # Try to get join requests for this user in the private channel
+                # If the user has a pending request, they will appear in the requests list
+                requests = await client.get_chat_join_requests(check_id, query=str(user_id), limit=1)
+                if requests and len(requests) > 0:
+                    # User has a pending join request
+                    print(f"[INFO] User {user_id} has pending request for private channel {check_id}")
+                    return True
+            except Exception as e:
+                print(f"[INFO] Could not check join requests for {check_id}: {e}")
         return False
     except (ChatAdminRequired, ChannelPrivate):
         print(f"[WARN] Bot cannot check membership for {check_id} — make it an admin.")
@@ -99,16 +119,19 @@ async def check_channel(client: Client, user_id: int, check_id) -> bool:
 
 
 async def is_fully_subscribed(client: Client, user_id: int) -> bool:
-    """Return True only if the user has joined ALL required channels."""
+    """
+    Return True only if the user has joined ALL required channels.
+    For private channels, also accept pending join requests.
+    """
     results = await asyncio.gather(
-        *[check_channel(client, user_id, ch[0]) for ch in CHANNELS]
+        *[check_channel(client, user_id, ch[0], ch[3]) for ch in CHANNELS]
     )
     return all(results)
 
 
 def join_keyboard() -> InlineKeyboardMarkup:
     """Keyboard with one button per channel + a Verify button."""
-    rows = [[InlineKeyboardButton(label, url=url)] for (_, label, url) in CHANNELS]
+    rows = [[InlineKeyboardButton(label, url=url)] for (_, label, url, _) in CHANNELS]
     rows.append([InlineKeyboardButton("✅ Verify", callback_data="verify")])
     return InlineKeyboardMarkup(rows)
 
