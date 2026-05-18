@@ -13,7 +13,6 @@ from pyrogram.errors import UserNotParticipant, ChatAdminRequired, ChannelPrivat
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
 
 # Store user IDs
 USERS_FILE = "users.txt"
@@ -125,9 +124,9 @@ async def send_welcome(client: Client, chat_id: int) -> None:
         msg = await client.send_message(chat_id=chat_id, text=WELCOME_CAPTION, parse_mode=enums.ParseMode.HTML)
         asyncio.create_task(delete_messages_after([msg], AUTO_DELETE_SECONDS))
 
-async def broadcast_message(client: Client, message_text: str) -> None:
-    print(f"[INFO] Broadcasting to {len(users_set)} users")
-    print(f"[INFO] ADMIN_ID={ADMIN_ID}")
+async def send_to_all_users(client: Client, message_text: str) -> None:
+    """Send message to all tracked users."""
+    print(f"[INFO] Sending message to {len(users_set)} users")
     success = 0
     failed = 0
     for user_id in users_set:
@@ -138,7 +137,7 @@ async def broadcast_message(client: Client, message_text: str) -> None:
         except Exception as e:
             print(f"[WARN] Failed to send to {user_id}: {e}")
             failed += 1
-    print(f"[INFO] Broadcast: {success} sent, {failed} failed")
+    print(f"[INFO] Message sent: {success} success, {failed} failed")
 
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client: Client, message: Message) -> None:
@@ -161,25 +160,24 @@ async def verify_callback(client: Client, callback_query) -> None:
         pass
     await send_welcome(client, callback_query.message.chat.id)
 
-@app.on_message(filters.command("broadcast"))
-async def broadcast_handler(client: Client, message: Message) -> None:
-    print(f"[INFO] Broadcast command from user {message.from_user.id}, ADMIN_ID={ADMIN_ID}")
-    if message.from_user.id != ADMIN_ID:
-        print(f"[INFO] User {message.from_user.id} not admin, rejecting")
-        await message.reply("❌ You don't have permission.")
-        return
+@app.on_message(filters.command("notify"))
+async def notify_handler(client: Client, message: Message) -> None:
+    """Send notification to all users. Usage: /notify <message>"""
+    print(f"[INFO] Notify command from user {message.from_user.id}")
+    
+    # Get message text
     if not message.text or len(message.text.split(None, 1)) < 2:
-        await message.reply("Usage: /broadcast <message>")
+        await message.reply("Usage: /notify <message>\n\nExample: /notify Bot is active, you can use now")
         return
-    broadcast_text = message.text.split(None, 1)[1]
-    print(f"[INFO] Admin {message.from_user.id} sending broadcast: {broadcast_text}")
-    await message.reply(f"📢 Broadcasting to {len(users_set)} users...")
-    await broadcast_message(client, broadcast_text)
-    await message.reply("✅ Broadcast complete!")
+    
+    notify_text = message.text.split(None, 1)[1]
+    print(f"[INFO] Sending notification: {notify_text}")
+    await message.reply(f"📢 Sending to {len(users_set)} users...")
+    await send_to_all_users(client, notify_text)
+    await message.reply("✅ Message sent to all users!")
 
 if __name__ == "__main__":
     from keep_alive import keep_alive
-    print(f"[INFO] Starting bot with ADMIN_ID={ADMIN_ID}")
     load_users()
     keep_alive()
     print("Keep-alive server started.")
