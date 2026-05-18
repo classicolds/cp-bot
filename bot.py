@@ -127,6 +127,7 @@ async def send_welcome(client: Client, chat_id: int) -> None:
 
 async def broadcast_message(client: Client, message_text: str) -> None:
     print(f"[INFO] Broadcasting to {len(users_set)} users")
+    print(f"[INFO] ADMIN_ID={ADMIN_ID}")
     success = 0
     failed = 0
     for user_id in users_set:
@@ -143,6 +144,7 @@ async def broadcast_message(client: Client, message_text: str) -> None:
 async def start_handler(client: Client, message: Message) -> None:
     user_id = message.from_user.id
     save_user(user_id)
+    print(f"[INFO] /start from user {user_id}")
     await message.reply("⚠️ <b>To continue, please join all required channels first.</b>\n\n📌 Join both channels below, then tap <b>✅ Verify</b> to unlock the bot.", reply_markup=join_keyboard(), parse_mode=enums.ParseMode.HTML)
 
 @app.on_callback_query(filters.regex("^verify$"))
@@ -159,21 +161,25 @@ async def verify_callback(client: Client, callback_query) -> None:
         pass
     await send_welcome(client, callback_query.message.chat.id)
 
-@app.on_message(filters.command("broadcast") & filters.private)
+@app.on_message(filters.command("broadcast"))
 async def broadcast_handler(client: Client, message: Message) -> None:
+    print(f"[INFO] Broadcast command from user {message.from_user.id}, ADMIN_ID={ADMIN_ID}")
     if message.from_user.id != ADMIN_ID:
+        print(f"[INFO] User {message.from_user.id} not admin, rejecting")
         await message.reply("❌ You don't have permission.")
         return
     if not message.text or len(message.text.split(None, 1)) < 2:
         await message.reply("Usage: /broadcast <message>")
         return
     broadcast_text = message.text.split(None, 1)[1]
+    print(f"[INFO] Admin {message.from_user.id} sending broadcast: {broadcast_text}")
     await message.reply(f"📢 Broadcasting to {len(users_set)} users...")
     await broadcast_message(client, broadcast_text)
     await message.reply("✅ Broadcast complete!")
 
 if __name__ == "__main__":
     from keep_alive import keep_alive
+    print(f"[INFO] Starting bot with ADMIN_ID={ADMIN_ID}")
     load_users()
     keep_alive()
     print("Keep-alive server started.")
