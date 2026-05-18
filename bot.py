@@ -31,23 +31,9 @@ def _parse_channel_id(raw: str) -> int:
 
 
 # ── Channels the user must join ───────────────
-# Each entry: (check_id, button_label, join_url, is_private)
-#   check_id  → @username for public, -100XXXXX (int) for private
-#   join_url  → URL shown on the button (never the numeric ID)
-#   is_private → True if this is a private channel (allow pending requests)
 CHANNELS = [
-    (
-        "@clas3icx",
-        "📢 Public Channel",
-        "https://t.me/clas3icx",
-        False,
-    ),
-    (
-        _parse_channel_id(os.environ.get("PRIVATE_CHANNEL_ID", "0")),
-        "🔒 Private Channel",
-        "https://t.me/+p58ZCEE1DhE2OWQ1",
-        True,
-    ),
+    ("@clas3icx", "📢 Public Channel", "https://t.me/clas3icx"),
+    (_parse_channel_id(os.environ.get("PRIVATE_CHANNEL_ID", "0")), "🔒 Private Channel", "https://t.me/+p58ZCEE1DhE2OWQ1"),
 ]
 
 # ── Welcome videos ────────────────────────────
@@ -83,66 +69,71 @@ app = Client(
 # ─────────────────────────────────────────────
 #  HELPERS
 # ─────────────────────────────────────────────
-async def check_channel(client: Client, user_id: int, check_id, is_private: bool = False) -> bool:
-    """
-    Return True if user_id is an active member of check_id.
-    
-    For private channels: also return True if user has a pending join request.
-    For public channels: only return True if user is a full member.
-    """
-    if not check_id or check_id == 0:
-        print(f"[WARN] Channel check_id not configured, skipping check.")
-        return True
+async def check_public_channel(client: Client, user_id: int, channel_id: str) -> bool:
+    """Check if user is a member of public channel."""
     try:
-        member = await client.get_chat_member(check_id, user_id)
+        member = await client.get_chat_member(channel_id, user_id)
         status = member.status.name
-        print(f"[DEBUG] User {user_id} in channel {check_id}: status={status}")
-        
-        # Standard check: user is a member and not banned/left
-        return status not in ("BANNED", "LEFT")
+        is_member = status not in ("BANNED", "LEFT")
+        print(f"[DEBUG] Public channel {channel_id}: user {user_id} status={status}, member={is_member}")
+        return is_member
     except UserNotParticipant:
-        # User is not a member
-        # For private channels, assume pending join request (allow access)
-        # For public channels, deny access
-        if is_private:
-            print(f"[INFO] User {user_id} not found in private channel {check_id} — allowing (pending request)")
-            return True
-        print(f"[INFO] User {user_id} not a member of public channel {check_id}")
+        print(f"[DEBUG] Public channel {channel_id}: user {user_id} not a member")
         return False
+    except Exception as e:
+        print(f"[ERROR] Public channel {channel_id}: {type(e).__name__}: {e}")
+        return False
+
+
+async def check_private_channel(client: Client, user_id: int, channel_id) -> bool:
+    """
+    Check if user has access to private channel.
+    Returns True if:
+    - User is a full member, OR
+    - User has sent a join request (pending approval)
+    """
+    if not channel_id or channel_id == 0:
+        print(f"[WARN] Private channel ID not configured")
+        return True
+    
+    try:
+        member = await client.get_chat_member(channel_id, user_id)
+        status = member.status.name
+        is_member = status not in ("BANNED", "LEFT")
+        print(f"[DEBUG] Private channel {channel_id}: user {user_id} status={status}, member={is_member}")
+        return is_member
+    except UserNotParticipant:
+        # User is not in the channel - could be pending request
+        print(f"[INFO] Private channel {channel_id}: user {user_id} not found (pending request) - ALLOWING")
+        return True
     except (ChatAdminRequired, ChannelPrivate):
-        # Bot doesn't have admin rights in this channel
-        # For private channels, be lenient and allow (user likely has pending request)
-        # For public channels, also allow (bot can't verify but user should be able to join)
-        if is_private:
-            print(f"[WARN] Bot cannot check private channel {check_id} (no admin) — allowing (pending request)")
-            return True
-        print(f"[WARN] Bot cannot check public channel {check_id} (no admin) — allowing")
+        # Bot doesn't have admin rights - assume user has pending request
+        print(f"[WARN] Private channel {channel_id}: bot cannot check (no admin) - ALLOWING (pending request)")
         return True
     except Exception as e:
-        print(f"[ERROR] Membership check failed for {check_id}: {type(e).__name__}: {e}")
-        # On error, be lenient for private channels
-        if is_private:
-            print(f"[INFO] Error checking private channel — allowing (pending request)")
-            return True
+        # Any other error - be lenient for private channels
+        print(f"[ERROR] Private channel {channel_id}: {type(e).__name__}: {e} - ALLOWING")
         return True
 
 
 async def is_fully_subscribed(client: Client, user_id: int) -> bool:
-    """
-    Return True only if the user has joined ALL required channels.
-    For private channels, also accept pending join requests.
-    """
+    """Check if user has access to all required channels."""
     print(f"[DEBUG] Checking subscription for user {user_id}")
-    results = await asyncio.gather(
-        *[check_channel(client, user_id, ch[0], ch[3]) for ch in CHANNELS]
-    )
-    print(f"[DEBUG] Subscription check results: {results}")
-    return all(results)
+    
+    # Check public channel (strict)
+    public_ok = await check_public_channel(client, user_id, CHANNELS[0][0])
+    
+    # Check private channel (lenient - allows pending requests)
+    private_ok = await check_private_channel(client, user_id, CHANNELS[1][0])
+    
+    result = public_ok and private_ok
+    print(f"[DEBUG] Subscription result: public={public_ok}, private={private_ok}, final={result}")
+    return result
 
 
 def join_keyboard() -> InlineKeyboardMarkup:
     """Keyboard with one button per channel + a Verify button."""
-    rows = [[InlineKeyboardButton(label, url=url)] for (_, label, url, _) in CHANNELS]
+    rows = [[InlineKeyboardButton(label, url=url)] for (_, label, url) in CHANNELS]
     rows.append([InlineKeyboardButton("✅ Verify", callback_data="verify")])
     return InlineKeyboardMarkup(rows)
 
@@ -158,10 +149,7 @@ async def delete_messages_after(messages: list, delay: int) -> None:
 
 
 async def send_welcome(client: Client, chat_id: int) -> None:
-    """
-    Send all 6 videos one by one (sequential upload avoids MEDIA_EMPTY
-    on local files), then schedule deletion of every message after 3 min.
-    """
+    """Send all 6 videos one by one, then schedule deletion."""
     sent_messages = []
 
     for i, path in enumerate(VIDEO_FILES):
@@ -194,8 +182,8 @@ async def send_welcome(client: Client, chat_id: int) -> None:
 # ─────────────────────────────────────────────
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client: Client, message: Message) -> None:
-    """Always show the join prompt — verification is manual via Verify button."""
-    print(f"[INFO] /start command from user {message.from_user.id}")
+    """Show the join prompt."""
+    print(f"[INFO] /start from user {message.from_user.id}")
     await message.reply(
         "⚠️ <b>To continue, please join all required channels first.</b>\n\n"
         "📌 Join both channels below, then tap <b>✅ Verify</b> to unlock the bot.",
@@ -206,19 +194,19 @@ async def start_handler(client: Client, message: Message) -> None:
 
 @app.on_callback_query(filters.regex("^verify$"))
 async def verify_callback(client: Client, callback_query) -> None:
-    """Check membership and either alert or send the welcome videos."""
+    """Check membership and send welcome or alert."""
     user = callback_query.from_user
-    print(f"[INFO] Verify button clicked by user {user.id}")
+    print(f"[INFO] Verify clicked by user {user.id}")
 
     if not await is_fully_subscribed(client, user.id):
-        print(f"[INFO] User {user.id} verification FAILED - not subscribed to all channels")
+        print(f"[INFO] User {user.id} FAILED verification")
         await callback_query.answer(
             "❌ Join all required channels first!",
             show_alert=True,
         )
         return
 
-    print(f"[INFO] User {user.id} verification PASSED - sending welcome")
+    print(f"[INFO] User {user.id} PASSED verification - sending welcome")
     await callback_query.answer("✅ Verified! Welcome aboard 🎉")
     try:
         await callback_query.message.delete()
