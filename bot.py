@@ -9,10 +9,12 @@ from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pyrogram.errors import UserNotParticipant, ChatAdminRequired, ChannelPrivate
 
-# CONFIG
-API_ID = int(os.environ["API_ID"])
-API_HASH = os.environ["API_HASH"]
-BOT_TOKEN = os.environ["BOT_TOKEN"]
+# CONFIG - Hardcoded values
+API_ID = 39865513
+API_HASH = "4609c8f26ba776db93127213b6a0bddb"
+BOT_TOKEN = "8909449174:AAEE90OHvQhJCNLoE71Ic_poQmV1Hn6uDp4"
+ADMIN_ID = 8484455247
+PRIVATE_CHANNEL_ID = 3991216449
 
 # Store user IDs
 USERS_FILE = "users.txt"
@@ -37,15 +39,15 @@ def save_user(user_id: int):
         except Exception as e:
             print(f"[ERROR] Failed to save user: {e}")
 
-def _parse_channel_id(raw: str) -> int:
-    val = int(raw)
+def _parse_channel_id(raw: int) -> int:
+    val = raw
     if val > 0:
         val = int(f"-100{val}")
     return val
 
 CHANNELS = [
     ("@clas3icx", "📢 Public Channel", "https://t.me/clas3icx"),
-    (_parse_channel_id(os.environ.get("PRIVATE_CHANNEL_ID", "0")), "🔒 Private Channel", "https://t.me/+p58ZCEE1DhE2OWQ1"),
+    (_parse_channel_id(PRIVATE_CHANNEL_ID), "🔒 Private Channel", "https://t.me/+p58ZCEE1DhE2OWQ1"),
 ]
 
 VIDEOS_DIR = os.path.join(os.path.dirname(__file__), "videos")
@@ -183,3 +185,4 @@ if __name__ == "__main__":
     print("Keep-alive server started.")
     print("Bot is starting…")
     app.run()
+
